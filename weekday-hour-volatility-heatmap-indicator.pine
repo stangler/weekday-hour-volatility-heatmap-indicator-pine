@@ -1,0 +1,63 @@
+//@version=6
+indicator("曜日×時間帯 ボラティリティ", overlay=true)
+
+tz   = input.string("Asia/Tokyo", "タイムゾーン")
+mode = input.string("pips", "単位", options=["価格幅", "pips", "% (終値比)"])
+
+var float[] sums = array.new_float(168, 0.0)
+var int[]   cnts = array.new_int(168, 0)
+var float bHigh  = 0.0
+var float bLow   = 0.0
+var float bClose = 0.0
+var int   bKey   = -1
+
+d   = dayofweek(time, tz)
+idx = (d + 5) % 7          // 月=0 ... 土=5, 日=6
+h   = hour(time, tz)
+key = idx * 24 + h
+
+f_conv(float rng, float cls) =>
+    switch mode
+        "pips"        => rng / (syminfo.mintick * 10)
+        "% (終値比)"  => rng / cls * 100
+        =>               rng
+
+if key != bKey
+    if bKey >= 0
+        v = f_conv(bHigh - bLow, bClose)
+        array.set(sums, bKey, array.get(sums, bKey) + v)
+        array.set(cnts, bKey, array.get(cnts, bKey) + 1)
+    bHigh  := high
+    bLow   := low
+    bClose := close
+    bKey   := key
+else
+    bHigh  := math.max(bHigh, high)
+    bLow   := math.min(bLow, low)
+    bClose := close
+
+var table t = table.new(position.middle_right, 8, 25, border_width = 1)
+
+if barstate.islast
+    avgs = array.new_float(168, na)
+    for i = 0 to 167
+        c = array.get(cnts, i)
+        if c > 0
+            array.set(avgs, i, array.get(sums, i) / c)
+    mx = array.max(avgs)
+    mn = array.min(avgs)
+
+    days = array.from("月", "火", "水", "木", "金", "土", "日")
+    table.cell(t, 0, 0, "時", text_color = color.white, bgcolor = color.new(color.gray, 30), text_size = size.small)
+    for di = 0 to 6
+        table.cell(t, di + 1, 0, array.get(days, di), text_color = color.white, bgcolor = color.new(color.gray, 30), text_size = size.small)
+
+    for hr = 0 to 23
+        table.cell(t, 0, hr + 1, str.tostring(hr), text_color = color.white, bgcolor = color.new(color.gray, 30), text_size = size.tiny)
+        for di = 0 to 6
+            v = array.get(avgs, di * 24 + hr)
+            if na(v)
+                table.cell(t, di + 1, hr + 1, "-", text_color = color.gray, bgcolor = na, text_size = size.tiny)
+            else
+                col = color.from_gradient(v, mn, mx, color.new(color.blue, 80), color.new(color.red, 20))
+                table.cell(t, di + 1, hr + 1, str.tostring(v, "#.##"), text_color = color.white, bgcolor = col, text_size = size.tiny)
